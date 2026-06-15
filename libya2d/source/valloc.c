@@ -181,11 +181,36 @@ void * valloc(size_t size)
 		return vabsptr(ptr);
 	}
 
-	/* Now we have a problem: There's no room at the bottom and also no room in between.
-	   So either we do compact the memory (time critical because memcopies needed) or we
-	   just return NULL so the application has to handle this case itself.
-	   For now we'll just return NULL
-	*/
+	/* No room above the head and no gap between blocks. Before giving up, try the
+	   region BELOW the lowest (tail) block, which _vram_mem_fit never considers
+	   (its gap scan only looks between a block and its ->next). Without this, an
+	   allocate-one/free-one-per-frame streaming pattern walks the heap to the top
+	   and exhausts VRAM even though the freed space below is available. */
+	{
+		vram_mem_header_t *tail = __valloc_vram_head;
+		while (tail->next != NULL)
+			tail = tail->next;
+
+		if ((u64)tail->ptr >= mem_sz) {
+			new_mem = (vram_mem_header_t *)malloc( sizeof(vram_mem_header_t) );
+			if (new_mem == NULL)
+				return ptr;
+			ptr = (void *)((u64)tail->ptr - mem_sz);  /* just below the tail */
+
+			new_mem->ptr  = ptr;
+			new_mem->size = mem_sz;
+			new_mem->prev = tail;
+			new_mem->next = NULL;
+			tail->next = new_mem;
+			__valloc_vram_tail = new_mem;
+
+			return vabsptr(ptr);
+		}
+	}
+
+	/* Truly out of VRAM: there's no room at the top, in between, or below the
+	   tail. Compacting would need memcopies; for now return NULL and let the
+	   caller handle it. */
 
 	return ptr;
 }

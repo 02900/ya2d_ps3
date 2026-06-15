@@ -34,6 +34,11 @@
 			
 		texp->dataLength = texp->rowBytes * texp->textureHeight;
 		texp->data = valloc(texp->dataLength);
+		if(texp->data == NULL)  /* out of VRAM: don't memset(NULL) -> hard hang */
+		{
+			free(texp);
+			return NULL;
+		}
 		memset((void*)texp->data, 0x0, texp->dataLength);
 		texp->textureOffset = tiny3d_TextureOffset(texp->data);
 		return texp;
@@ -148,6 +153,11 @@
 	static ya2d_Texture* createTexImg(uint32_t width, uint32_t height, void* bmp_out)
 	{
 		ya2d_Texture *texp = ya2d_createTexture(width, height, TINY3D_TEX_FORMAT_A8R8G8B8);
+		if(texp == NULL)  /* out of VRAM: don't deref NULL, free the decoded bitmap */
+		{
+			free(bmp_out);
+			return NULL;
+		}
 		memcpy(texp->data, bmp_out, texp->dataLength);
 		free(bmp_out);
 		return texp;
